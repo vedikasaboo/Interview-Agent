@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+/*
+  Design system — "Screener Agent" catalog v1 (imported from Claude Design).
+  Same palette as before; the character comes from the type system:
+  DM Serif Display (headings) · Space Grotesk (body/UI) · JetBrains Mono
+  (tokens, timestamps, AND the wordmark + card titles, used bold).
+*/
+:root {
+  --ink: #0a1930; /* primary text, primary button fill, navy pane */
+  --ink-muted: #5b6472; /* secondary text, labels, table headers */
+  --surface: #f8f7f2; /* page background */
+  --surface-raised: #fdfcf9; /* cards, rail, raised inputs */
+  --border: #e6e3da; /* the 1px hairline */
+  --neutral: #edebe3; /* INVITED tag / subtle fills, one notch darker than surface */
+  --accent: #3b49df; /* cobalt — links, focus, small highlights */
+  --accent-hover: #2f3bc4;
+  --success: #3f7a5e;
+  --error: #b4453c;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-neutral: var(--neutral);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-success: var(--success);
+  --color-error: var(--error);
+
+  --font-display: var(--font-dm-serif), Georgia, serif;
+  --font-sans: var(--font-space-grotesk), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  body {
+    background-color: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+  }
+
+  /* One focus treatment for every interactive element. Outline follows each
+     element's own border-radius in modern browsers. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--accent) 18%, transparent);
+  }
+}
