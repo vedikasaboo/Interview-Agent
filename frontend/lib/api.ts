@@ -68,16 +68,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const { skip401Handler, body, headers, ...rest } = options;
   const token = useAuthStore.getState().token;
 
+  // FormData (file uploads) must NOT be JSON-stringified, and the browser must
+  // set its own multipart Content-Type with the boundary — so we omit ours.
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+
   let res: Response;
   try {
     res = await fetch(`${API_BASE_URL}${path}`, {
       ...rest,
       headers: {
-        "Content-Type": "application/json",
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...headers,
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
     });
   } catch {
     // fetch() rejects only when the request never completed — connection

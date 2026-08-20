@@ -37,3 +37,10 @@ export class ConflictError extends AppError {
   readonly statusCode = 409;
   readonly code = "CONFLICT";
 }
+
+// The request was well-formed but couldn't be processed — e.g. a valid PDF that
+// yields no text, or an LLM response that fails the resume schema.
+export class UnprocessableEntityError extends AppError {
+  readonly statusCode = 422;
+  readonly code = "UNPROCESSABLE";
+}

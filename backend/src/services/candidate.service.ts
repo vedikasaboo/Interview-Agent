@@ -8,6 +8,11 @@ interface AddCandidateInput {
   email: string;
 }
 
+// Ownership for candidate-scoped routes: the candidate exists AND its campaign
+// belongs to this recruiter. Returns null otherwise.
+export const findOwnedCandidate = (candidateId: number, recruiterId: number) =>
+  prisma.candidate.findFirst({ where: { id: candidateId, campaign: { recruiterId } } });
+
 export const addCandidate = async (
   campaignId: number,
   recruiterId: number,

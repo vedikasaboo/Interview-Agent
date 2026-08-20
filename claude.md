@@ -166,6 +166,9 @@ Everything runs locally. No deployment in scope.
 - **TypeScript 7 native compiler dropped `moduleResolution: node10`.**
   Use `nodenext` in tsconfig instead.
 - **Zustand persist with SSR: use `skipHydration: true` and rehydrate manually in a mount effect.** Otherwise client-only auto-rehydration runs at module load, so the first client render differs from the server render → React hydration mismatch. Same compounding lesson as the multi-path cascade one: the tool does something automatic that only bites at the boundary (here, SSR vs client), and validates/builds clean until then.
+- **livekit-client does NOT auto-play remote audio.** Connecting + publishing your mic is not enough to *hear* the other side — you must attach each subscribed audio track to an element (`RoomEvent.TrackSubscribed` → `track.attach()`). Symptom: agent logs show it spoke the full line, browser is silent.
+- **AgentSession `say()` defaults to `allow_interruptions=True`.** A live candidate mic triggers VAD/turn-detection and interrupts a one-shot greeting before it's audible (looks like: `speaking greeting` → `user turn committed` → `greeting complete` within ~1.5s). For non-conversational speech use `say(..., allow_interruptions=False)`.
+- **LiveKit auto-dispatch fires on room *creation*, and a room persists (~empty_timeout) after everyone leaves.** Re-testing with the SAME `interviewToken` rejoins the already-served room → no new agent dispatch (no `received job request`). Use a fresh token per test, or delete the room. Not a real-flow issue (every candidate has a unique token → unique room).
 
 ---
 
@@ -230,9 +233,31 @@ Phase 3 (frontend) — in progress:
 - **Error handling fixed:** `lib/api.ts` now throws `NetworkError` when `fetch` never reaches the server (backend down/offline), distinct from `ApiError` (a real HTTP response). Login/signup branch on it — network → "Couldn't reach the server…", 401 → "Invalid email or password." Verified: real `api.ts` against a dead port throws `NetworkError`.
 - **Full recruiter flow verified in a real headless browser** (puppeteer, `--no-save`): demo login → create campaign → open → add candidate via drawer → row renders; the DOM-rendered interview token matches the DB token exactly. This is the user-clean check, not just compile-clean.
 
-Env: MySQL 9.7 running locally, `DATABASE_URL` works, DB exists. LiveKit / Groq / Gemini / SMTP keys are populated in `.env` — needed Phase 4 onward.
+Phase 3c (resume upload + LLM parsing) — DONE, backend verified end-to-end:
+- Route `POST /api/candidates/:id/resume` (multipart). multer disk storage → `backend/uploads/` (gitignored), UUID filenames, 5MB, MIME filter; `%PDF` magic-byte check post-write (multer can't read bytes in fileFilter). Ownership check (404). Extract (pdf-parse **2.x**, `PDFParse` class — the `lib/pdf-parse.js` 1.x workaround does NOT apply) → Gemini structured output → zod validate → one transaction (parsedData + reproject Skill/CandidateSkill; JSON authoritative, join derived). FAILED path stores a reason in new `Resume.parse_error` column, keeps the file for retry, returns 422.
+- **Gemini gotcha (again):** `gemini-2.5-flash` now hard-404s "no longer available to new users"; the models-list endpoint still shows it. Default model is now **`gemini-flash-latest`** (env-swappable via `GEMINI_MODEL`); `@google/genai` 2.13 SDK. **`GEMINI_API_KEY` copied into `backend/.env`** (was only in agent/.env).
+- Verified via curl: real PDF → 200 SUCCESS, parsedData stored, 9 CandidateSkill rows. The two API calls the drawer makes (create candidate + multipart upload) both 200.
+- Frontend: two-step add-candidate **drawer** (details → résumé drag-drop/upload, indeterminate "parsing" state, parsed preview, 422→inline retry). `api.ts` extended for FormData (no JSON stringify, browser sets multipart boundary). Typecheck + boot clean; headless UI drive flaked on nav timing (not the upload) — **user should eyeball the drawer click-through**.
+- Eval harness: `npm run eval:resumes` (backend/eval/resumes/) — runner imports the same services, metrics = name exact-match, skills P/R/F1, edu/exp/proj entity Jaccard; writes timestamped JSON to results/. `fixtures/` + `results/` gitignored, `gold/` committed (with a `jane-doe.json` example). Verified on the sample (all 1.00). **User adds ~10 real labeled resumes.**
+- **Provider switched to Groq** (`openai/gpt-oss-120b`) because Gemini free tier was persistently 503. `services/resumeParser.service.ts` now dispatches on `LLM_PROVIDER` env (`groq`|`gemini`, default groq); `gemini.service.ts` folded in. Groq is OpenAI-compatible (raw fetch, JSON mode + shape-in-prompt + same zod validation). **`research` field added** to the schema (zod + Gemini schema + Groq prompt shape + eval metric + frontend type) — real résumés have a research section that didn't fit experience/projects. Verified on a real résumé (Groq): name/skills/projects/education/experience/research all extracted, stored UTF-8-clean.
+- Not committed. Skipped Phase 3b (email) — using copy-link fallback.
 
-Next: manual click-through to confirm the recruiter flow, then Phase 3b (candidate invite email) / 3c (resume upload + parse). Both frontend and backend must be running (`:3000` + `:4000`).
+Phase 4 (LiveKit token issuance) — DONE, backend verified via JWT decode:
+- `POST /api/interviews/:interviewToken/token` — **public** (the unguessable token is the credential; no requireAuth). Looks up candidate by token → mints a LiveKit room token via `lib/livekit.ts` (`livekit-server-sdk` 2.x, `AccessToken`, `toJwt()` is async). Room name = `interview-<token>`; identity = `candidate-<id>`; grants roomJoin/canPublish/canSubscribe; 1h ttl.
+- **Metadata embedded in the token** = `{candidateId, candidateName, role, campaignTitle, resume: parsedData|null}` — this is what Phase 7's agent reads. Verified by decoding the JWT: room grant + full résumé JSON (17 skills, 1 research) present. Invalid token → 404. Secret stays backend-only; response returns `{token, url, roomName, candidateName}` so frontend needs no LiveKit env.
+- Frontend: public `app/interview/[interviewToken]/page.tsx` (client) — fetches token via `api.post(..., {skip401Handler:true})`, **dynamic-imports `livekit-client`** (avoids SSR eval of browser SDK), connects, enables mic, shows loading/connecting/connected/error states. Typecheck clean, route renders 200. **Live room join (mic + WebRTC) is the user's browser checkpoint — can't headless it.**
+
+Phase 4 verified in browser (2026-08-20): candidate joined the room, mic live, LiveKit dashboard showed the session with 1 participant. **Block A (web app) complete.**
+
+Phase 5 (agent v1) — DONE, worker registers with LiveKit; browser checkpoint is the user's:
+- **agent venv: Python 3.11** (`agent/.venv`, system was 3.8). `livekit-agents 1.6.10` + `livekit-plugins-google` + `python-dotenv`.
+- `agent/src/config.py` (loads `agent/.env` via absolute path; asserts LIVEKIT_* + GEMINI_API_KEY) · `agent/src/agent.py` (entrypoint: `ctx.connect()` → `wait_for_participant()` → `AgentSession(tts=GeminiTTS).say(line).wait_for_playout()` → `aclose()`; `cli.run_app(WorkerOptions(entrypoint_fnc=...))`). No LLM/STT — one hardcoded line, then leaves.
+- **TTS decision: Gemini** (`google.beta.GeminiTTS`, model `gemini-2.5-flash-preview-tts`, api_key passed explicitly → no GOOGLE_API_KEY gotcha). **Groq's `playai-tts` is DECOMMISSIONED** (stack's original TTS is gone); Gemini TTS verified working (200 + audio) even while Gemini text models 503. Swappable later (plugin); local Kokoro/`say` are fallbacks if Gemini TTS gets flaky.
+- Run: `cd agent && .venv/bin/python src/agent.py dev` (worker auto-dispatches, agent_name=""). **VERIFIED in browser (2026-08-20): candidate heard the full greeting.** Two fixes were needed and are now in the code + gotchas: (1) `say(..., allow_interruptions=False)` — the live mic was interrupting the one-shot greeting; (2) the interview page must `track.attach()` remote audio (livekit-client doesn't auto-play). Test with a **fresh token each run** (stale-room dispatch gotcha).
+
+Env: MySQL 9.7 running locally, `DATABASE_URL` works, DB exists. LiveKit / Groq / Gemini / SMTP keys populated in both `.env` files. Gemini newest models sometimes 503 (overloaded) — transient, retry.
+
+Next: Phase 6 — real STT→LLM→TTS interview loop. Groq Whisper STT + LLM (Gemini or Groq) + Gemini TTS (already wired), VAD via silero, real turn-taking in AgentSession, a written system prompt. Phase 7 then injects the candidate context (name/role/résumé) from the token metadata (already embedded in Phase 4) into that prompt.
 
 ---
 

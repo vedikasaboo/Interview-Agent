@@ -76,6 +76,7 @@ model Resume {
   rawFilePath String      @map("raw_file_path")
   parsedData  Json?       @map("parsed_data")
   parseStatus ParseStatus @default(PENDING) @map("parse_status")
+  parseError  String?     @db.Text @map("parse_error") // failure reason when parseStatus = FAILED
   parsedAt    DateTime?   @map("parsed_at")
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")

@@ -1,3 +1,10 @@
 node_modules/
 dist/
 .env
+
+# Uploaded resume PDFs — real files, not committed
+uploads/
+
+# Eval: real resume PDFs (PII) and their extracted output; gold labels ARE committed
+eval/resumes/fixtures/
+eval/resumes/results/

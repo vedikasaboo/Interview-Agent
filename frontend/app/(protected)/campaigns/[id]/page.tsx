@@ -123,8 +123,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             open={drawerOpen}
             campaignId={campaignId}
             onClose={() => setDrawerOpen(false)}
-            onCreated={(name) => {
-              setDrawerOpen(false);
+            onCandidateCreated={(name) => {
+              // Candidate row exists after step 1 — refresh the table now; the
+              // drawer stays open for the résumé step.
               setToast(`${name} added`);
               void refetch();
             }}

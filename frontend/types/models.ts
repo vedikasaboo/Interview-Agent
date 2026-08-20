@@ -37,3 +37,31 @@ export interface CampaignListItem extends Campaign {
 export interface CampaignDetail extends Campaign {
   candidates: Candidate[];
 }
+
+export type ParseStatus = "PENDING" | "SUCCESS" | "FAILED";
+
+export interface ParsedResume {
+  name: string;
+  skills: string[];
+  education: { degree: string; institution: string; year?: string | null }[];
+  experience: {
+    role: string;
+    company: string;
+    startDate?: string | null;
+    endDate?: string | null;
+    summary?: string | null;
+  }[];
+  projects: { name: string; technologies: string[]; description?: string | null }[];
+  research: { title: string; description?: string | null }[];
+}
+
+// POST /api/candidates/:id/resume response.
+export interface Resume {
+  id: number;
+  candidateId: number;
+  rawFilePath: string;
+  parseStatus: ParseStatus;
+  parseError: string | null;
+  parsedData: ParsedResume | null;
+  parsedAt: string | null;
+}

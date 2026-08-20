@@ -1,0 +1,19 @@
+{
+  "name": "Jane Doe",
+  "skills": ["Python", "Go", "PostgreSQL", "Kubernetes", "Docker", "gRPC", "Redis", "AWS", "Terraform"],
+  "education": [
+    {
+      "degree": "B.S. Computer Science",
+      "institution": "Massachusetts Institute of Technology",
+      "year": "2018"
+    }
+  ],
+  "experience": [
+    { "role": "Staff Engineer", "company": "Acme Robotics", "startDate": "2021", "endDate": "Present" },
+    { "role": "Backend Engineer", "company": "Northloop", "startDate": "2018", "endDate": "2021" }
+  ],
+  "projects": [
+    { "name": "Interview Agent", "technologies": ["TypeScript", "Next.js", "LiveKit", "Prisma", "MySQL"] },
+    { "name": "Distributed Cache", "technologies": ["Go", "Redis"] }
+  ]
+}
