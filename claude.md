@@ -155,7 +155,8 @@ Everything runs locally. No deployment in scope.
   `curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=KEY" | grep '"name"'`
 - **No realtime/bidirectional Gemini model is available** on the current AI Studio key. Must use the three-piece STT→LLM→TTS pipeline, not a combined audio model.
 - **LiveKit's Google plugin wants `GOOGLE_API_KEY`**, not `GEMINI_API_KEY`.
-- **PlayAI TTS requires accepting model terms** in the Groq console before it works.
+- **Groq gates some models behind one-time terms acceptance** in the console — the request 400s with `model_terms_required` until you click accept. Hit this twice: first `playai-tts` (now decommissioned entirely), then `canopylabs/orpheus-v1-english`. Accept at `https://console.groq.com/playground?model=<url-encoded-model-id>`.
+- **Gemini TTS free tier is 3 requests total** (`generate_content_free_tier_requests`, model `gemini-2.5-flash-tts`) → 429 `RESOURCE_EXHAUSTED`. Fine for Phase 5's single line, **unusable for a conversation** (one TTS call per agent turn). This is why TTS moved to Groq orpheus. Don't design a voice loop around Gemini TTS on the free tier.
 - **Gmail app passwords** are shown with spaces for readability — strip them in `.env`.
 - **MySQL passwords with special characters** must be URL-encoded in `DATABASE_URL` (`@` → `%40`).
 - **Prisma allows multi-path cascade conflicts through `db push` without warning.** If two FK paths reach the same table with different `onDelete` actions (e.g. Cascade one way, Restrict the other), the schema validates and pushes clean — but at runtime InnoDB's evaluation order decides which action fires, so the same delete can succeed or throw depending on which path is processed first. Trace every delete root manually before pushing. Prisma won't catch it.
@@ -197,7 +198,7 @@ Full plan lives in `interview-agent-build-plan.md`. Summary:
 
 ## Current status
 
-**Phase: 3 pages built & verified (typecheck + all routes 200). Manual click-through is the checkpoint. Next: Phase 3b (candidate invite email) or 3c (resume upload/parse).**
+**Phase: 7 complete & verified live — personalised interview works end to end. Blocks A + B done. Next: Phase 8 — transcript capture, LLM scoring, authenticated writeback.**
 
 Rebuilt from scratch this session (2026-07-23) — earlier notes had claimed progress that wasn't on disk.
 
@@ -257,7 +258,25 @@ Phase 5 (agent v1) — DONE, worker registers with LiveKit; browser checkpoint i
 
 Env: MySQL 9.7 running locally, `DATABASE_URL` works, DB exists. LiveKit / Groq / Gemini / SMTP keys populated in both `.env` files. Gemini newest models sometimes 503 (overloaded) — transient, retry.
 
-Next: Phase 6 — real STT→LLM→TTS interview loop. Groq Whisper STT + LLM (Gemini or Groq) + Gemini TTS (already wired), VAD via silero, real turn-taking in AgentSession, a written system prompt. Phase 7 then injects the candidate context (name/role/résumé) from the token metadata (already embedded in Phase 4) into that prompt.
+Phase 6 (agent v2 — real interview loop) — BUILT, each component verified independently; live conversation is the user's checkpoint:
+- Pipeline: **Groq Whisper STT** (`whisper-large-v3-turbo`) → **LLM** (swappable via `LLM_PROVIDER`, default Groq `openai/gpt-oss-120b`) → **TTS** (swappable via `TTS_PROVIDER`, **default `local`**) → with **Silero VAD** + LiveKit's built-in turn detection.
+- **TTS ended up local (`src/local_tts.py`, macOS `say`) after all three cloud options failed:** playai-tts decommissioned → Gemini TTS free tier = 3 requests (429 mid-conversation) → Groq orpheus needs console terms acceptance (400 `model_terms_required`). `LocalSayTTS` implements `tts.TTS`/`tts.ChunkedStream` (`_run` → `initialize/push/flush` on the AudioEmitter); verified emitting 22 frames / 86KB. Offline, no key/quota/terms. Voice is dated — swap `TTS_PROVIDER=groq` once terms are accepted, or move to a local neural model (Kokoro) for quality.
+- **Groq plugin's default LLM `llama-3.3-70b-versatile` is DECOMMISSIONED** — Groq now serves only gpt-oss / qwen / whisper / orpheus. Always pass an explicit model. (`canopylabs/orpheus-v1-english` is a Groq TTS option if Gemini TTS ever dies.)
+- Files: `src/prompts.py` (interviewer persona + voice constraints; `build_instructions()` is the seam Phase 7 extends), `src/config.py` (STT/LLM/TTS models + provider switch), `src/agent.py` (entrypoint + wiring only). **VAD is prewarmed** via `WorkerOptions(prewarm_fnc=...)` → `proc.userdata["vad"]` (model load is slow enough to be audible otherwise).
+- Opening line uses `allow_interruptions=False`; the rest of the conversation allows interruptions (natural back-and-forth).
+- **VERIFIED in browser (2026-08-21): a real spoken interview worked end to end** — agent greeted, candidate answered aloud, agent asked genuine follow-ups. Full STT→LLM→TTS loop + turn-taking confirmed working.
+- **Voice quality:** macOS compact voices sound robotic. Fix is free and offline — download an Enhanced/Premium voice (System Settings → Accessibility → Spoken Content → System Voice → Manage Voices), then set `LOCAL_TTS_VOICE`. Currently **`Sangeeta (Enhanced)`** (en_IN). `say -v '?'` lists what's installed.
+- Dev helper added: **`cd backend && npm run rooms:clear`** (`scripts/clear-rooms.ts`) deletes lingering LiveKit rooms so any interview token is immediately reusable — fixes the "no agent joins on re-test" stale-room trap.
+- Provider reliability note: hit a transient **Groq 502** (their origin down, Cloudflare error) mid-call; LiveKit retried 4× then failed loudly. Not a code bug. `LLM_PROVIDER`/`TTS_PROVIDER` env swaps exist exactly for this.
+
+Phase 7 (candidate context injection) — DONE, **verified live in browser (2026-08-21)**: agent greeted by name, stated the role, and asked about real résumé projects the candidate never mentioned aloud. **Block B (the agent) complete.**
+- `src/context.py`: `CandidateContext` dataclass + `extract_candidate_context(participant.metadata)`. Parses the JSON the backend embedded in the room token (Phase 4) and renders résumé entries into short prompt lines. Caps at 20 skills / 4 entries per section so the prompt stays bounded. **Never raises** — None / empty / malformed JSON / wrong type / no-résumé all degrade to a generic interview (verified).
+- `src/prompts.py`: `build_instructions(ctx)` appends a "WHO YOU ARE INTERVIEWING" block (name, role, campaign, skills, experience, projects, research, education) + guidance to name a specific project rather than ask generically. `build_greeting_instruction(ctx)` makes the opening line greet by name and state the role. Résumé text is explicitly framed as **data, not instructions** (it came from an uploaded PDF).
+- `src/agent.py` reads `participant.metadata` after `wait_for_participant()` and passes the context to both. Agent still has **no DB access** — token metadata is the only inbound channel.
+- Verified with a real minted token: extracted name/role/20 skills/4 projects/1 research/education, greeting instruction reads "Greet Vedika by name ... for the Machine Learning Engineer role". Worker starts clean.
+- **Demo candidate for testing:** campaign "ML Engineer Intern" / role "Machine Learning Engineer", candidate "Vedika Saboo" with the real parsed résumé — token `e415aa73-6601-4e6f-9386-6cc444c9bae5`. (Earlier test candidates have junk role/campaign text like "ewfef".)
+
+Next: **Phase 8** — close the loop. (8a) capture the transcript during the session, (8b) one final LLM call at session end returning `{score, summary, strengths[], concerns[]}`, (8c) POST it to a new backend route `POST /api/interviews/:interviewToken/result` guarded by `AGENT_SHARED_SECRET` (already in both `.env` files) → writes `InterviewResult` + updates `Candidate.status`/`interviewedAt`. New agent files: `evaluation.py`, `backend_client.py`. Then Phase 9 surfaces it in the recruiter UI (the Score column already exists, showing "—").
 
 ---
 

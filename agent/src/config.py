@@ -21,9 +21,37 @@ def _require(name: str) -> str:
 for _k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
     _require(_k)
 
-# Passed explicitly to the Gemini TTS plugin (avoids the GOOGLE_API_KEY gotcha).
 GEMINI_API_KEY = _require("GEMINI_API_KEY")
+GROQ_API_KEY = _require("GROQ_API_KEY")
 
-# gemini-2.5-flash-preview-tts is verified working; swappable via env. All Gemini
-# TTS models are "preview" and may expire — see the CLAUDE.md gotcha.
-TTS_MODEL = os.environ.get("TTS_MODEL", "gemini-2.5-flash-preview-tts")
+# --- Speech-to-text (Groq Whisper) -------------------------------------------
+STT_MODEL = os.environ.get("STT_MODEL", "whisper-large-v3-turbo")
+
+# --- LLM ----------------------------------------------------------------------
+# Swappable by config, not hardcoded — lets us compare providers and keeps the
+# agent working when one is down. Deliberately NO automatic runtime failover: a
+# failed call plus a retry means the candidate sits in silence, which is worse
+# than failing loudly.
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq")
+# The Groq plugin's default (llama-3.3-70b-versatile) is decommissioned — always
+# pass an explicit model.
+GROQ_LLM_MODEL = os.environ.get("GROQ_LLM_MODEL", "openai/gpt-oss-120b")
+GEMINI_LLM_MODEL = os.environ.get("GEMINI_LLM_MODEL", "gemini-flash-latest")
+
+# --- Text-to-speech -----------------------------------------------------------
+# Swappable like the LLM. Default Groq: Gemini's TTS free tier caps at 3 requests,
+# which is unusable for a conversation (one TTS call per agent turn). Gemini TTS
+# models are also all "preview" and expire — see the CLAUDE.md gotchas.
+# "local" (macOS `say`, offline, always works) | "groq" (needs console terms
+# acceptance) | "gemini" (free tier caps at 3 requests — unusable for a call).
+TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "local")
+# Enhanced/Premium macOS voices sound markedly better than the default compact
+# ones, but must be downloaded first (System Settings → Accessibility → Spoken
+# Content → System Voice → Manage Voices). `say -v '?'` lists what's installed.
+LOCAL_TTS_VOICE = os.environ.get("LOCAL_TTS_VOICE", "Sangeeta (Enhanced)")
+# Requires one-time model-terms acceptance in the Groq console (same trap as the
+# retired playai-tts).
+GROQ_TTS_MODEL = os.environ.get("GROQ_TTS_MODEL", "canopylabs/orpheus-v1-english")
+GROQ_TTS_VOICE = os.environ.get("GROQ_TTS_VOICE", "autumn")
+GEMINI_TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+GEMINI_TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Kore")

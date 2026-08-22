@@ -6,7 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "eval:resumes": "tsx eval/resumes/run.ts"
+    "eval:resumes": "tsx eval/resumes/run.ts",
+    "rooms:clear": "tsx scripts/clear-rooms.ts"
   },
   "dependencies": {
     "@google/genai": "^2.13.0",
