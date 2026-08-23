@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { mintRoomToken } from "../lib/livekit";
 import { config } from "../config";
@@ -36,4 +37,66 @@ export async function issueInterviewAccess(interviewToken: string) {
   });
 
   return { token, url: config.LIVEKIT_URL, roomName, candidateName: candidate.name };
+}
+
+interface Discrepancy {
+  claim: string;
+  finding: string;
+  status: "supported" | "unsupported" | "contradicted" | "not_discussed";
+}
+
+interface InterviewResultInput {
+  transcript: string;
+  summary: string;
+  score: number;
+  strengths: string[];
+  concerns: string[];
+  discrepancies: Discrepancy[];
+}
+
+// Written by the agent at the end of an interview (Phase 8). The result and the
+// candidate's new state go in one transaction so a partial write can't leave a
+// scored interview with an un-updated candidate.
+export async function saveInterviewResult(
+  interviewToken: string,
+  input: InterviewResultInput,
+) {
+  const candidate = await prisma.candidate.findUnique({ where: { interviewToken } });
+  if (!candidate) {
+    throw new NotFoundError("Invalid interview token");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // Upsert keyed on candidateId: the agent may retry, and a retry must not
+    // create a second result row.
+    const result = await tx.interviewResult.upsert({
+      where: { candidateId: candidate.id },
+      create: {
+        candidateId: candidate.id,
+        transcript: input.transcript,
+        summary: input.summary,
+        score: input.score,
+        strengths: input.strengths as unknown as Prisma.InputJsonValue,
+        concerns: input.concerns as unknown as Prisma.InputJsonValue,
+        discrepancies: input.discrepancies as unknown as Prisma.InputJsonValue,
+      },
+      update: {
+        transcript: input.transcript,
+        summary: input.summary,
+        score: input.score,
+        strengths: input.strengths as unknown as Prisma.InputJsonValue,
+        concerns: input.concerns as unknown as Prisma.InputJsonValue,
+        discrepancies: input.discrepancies as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    // Score lives only on InterviewResult (Phase 1 decision) — the candidate
+    // record just records that the interview happened.
+    await tx.candidate.update({
+      where: { id: candidate.id },
+      data: { status: "INTERVIEWED", interviewedAt: new Date() },
+    });
+
+    return result;
+  });
 }

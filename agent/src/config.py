@@ -24,6 +24,12 @@ for _k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
 GEMINI_API_KEY = _require("GEMINI_API_KEY")
 GROQ_API_KEY = _require("GROQ_API_KEY")
 
+# --- Backend writeback (Phase 8) ---------------------------------------------
+# The agent has no database access; results go through the backend API, which
+# authenticates this shared secret. Must match backend/.env exactly.
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:4000")
+AGENT_SHARED_SECRET = _require("AGENT_SHARED_SECRET")
+
 # --- Speech-to-text (Groq Whisper) -------------------------------------------
 STT_MODEL = os.environ.get("STT_MODEL", "whisper-large-v3-turbo")
 

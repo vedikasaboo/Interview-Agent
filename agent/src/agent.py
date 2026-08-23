@@ -8,11 +8,19 @@ candidate has finished speaking.
 import logging
 
 from livekit.agents import Agent, AgentSession, JobContext, JobProcess, WorkerOptions, cli
+from livekit.agents.voice.events import CloseEvent, CloseReason
 from livekit.plugins import groq, silero
 
 import config
 import prompts
+from backend_client import submit_interview_result
 from context import extract_candidate_context
+from evaluation import evaluate_transcript
+from transcript import TranscriptRecorder
+
+# Rooms are named `interview-<interviewToken>` by the backend (Phase 4), which is
+# how the agent recovers the token it needs to write results back.
+ROOM_PREFIX = "interview-"
 
 logger = logging.getLogger("interview-agent")
 
@@ -61,6 +69,37 @@ def _build_llm():
     return groq.LLM(api_key=config.GROQ_API_KEY, model=config.GROQ_LLM_MODEL)
 
 
+async def _score_and_save(room_name: str, recorder: TranscriptRecorder, candidate) -> None:
+    """Score the recorded transcript and write it back to the backend.
+
+    Runs after the interview ends. Failures are logged, never raised: the call is
+    already over, so crashing the worker would help no one.
+    """
+    if not room_name.startswith(ROOM_PREFIX):
+        logger.warning("room %s is not an interview room; skipping writeback", room_name)
+        return
+    interview_token = room_name[len(ROOM_PREFIX) :]
+
+    transcript = recorder.text()
+    if not transcript:
+        logger.info("no transcript captured; nothing to save")
+        return
+
+    logger.info(
+        "interview ended; evaluating transcript (%d turns, %d chars)",
+        recorder.turns,
+        len(transcript),
+    )
+    # The résumé goes in so the model can report which claims the conversation
+    # substantiated — it must not influence the score itself (see the prompt).
+    evaluation = await evaluate_transcript(transcript, candidate)
+    if evaluation is None:
+        logger.warning("evaluation produced no result; skipping writeback")
+        return
+
+    await submit_interview_result(interview_token, transcript, evaluation)
+
+
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     logger.info("agent connected to room %s", ctx.room.name)
@@ -86,9 +125,30 @@ async def entrypoint(ctx: JobContext) -> None:
         tts=_build_tts(),
     )
 
+    # Record turns as they happen — reading session.history at shutdown loses them.
+    recorder = TranscriptRecorder()
+    recorder.attach(session)
+
     await session.start(
         agent=Agent(instructions=prompts.build_instructions(candidate)), room=ctx.room
     )
+
+    # Score and persist once the room closes (candidate hung up). Registered
+    # before the first turn so an early disconnect is still captured.
+    async def on_shutdown() -> None:
+        await _score_and_save(ctx.room.name, recorder, candidate)
+
+    ctx.add_shutdown_callback(on_shutdown)
+
+    # The session closes as soon as the candidate disconnects, but the job — and
+    # therefore the writeback above — would otherwise wait for the room to close.
+    # The room can't go empty while the agent is still sitting in it, so the
+    # result would be stranded until the room was deleted. End the job here.
+    @session.on("close")
+    def _on_close(event: CloseEvent) -> None:
+        if event.reason != CloseReason.JOB_SHUTDOWN:
+            logger.info("session closed (%s); shutting down job to save result", event.reason)
+            ctx.shutdown(reason="interview ended")
 
     # Agent speaks first. Not interruptible: the candidate's open mic would
     # otherwise cut the introduction off before it's audible (see CLAUDE.md).

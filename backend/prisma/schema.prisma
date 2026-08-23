@@ -137,6 +137,10 @@ model InterviewResult {
   score       Int
   strengths   Json?
   concerns    Json?
+  // Where the conversation supported or failed to support résumé claims. Kept
+  // separate from `concerns` so it can't be confused with general interview
+  // weaknesses, and so the recruiter UI can surface it distinctly.
+  discrepancies Json?   @map("discrepancies")
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([score])

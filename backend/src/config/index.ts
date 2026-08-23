@@ -26,6 +26,9 @@ const schema = z.object({
   LIVEKIT_URL: z.string().min(1),
   LIVEKIT_API_KEY: z.string().min(1),
   LIVEKIT_API_SECRET: z.string().min(1),
+  // Shared secret the agent uses to write interview results (Phase 8). The
+  // agent has no DB access, so this route is its only way to persist anything.
+  AGENT_SHARED_SECRET: z.string().min(1),
 });
 
 const parsed = schema.safeParse(process.env);

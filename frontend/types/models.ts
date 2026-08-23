@@ -40,6 +40,27 @@ export interface CampaignDetail extends Campaign {
 
 export type ParseStatus = "PENDING" | "SUCCESS" | "FAILED";
 
+export type DiscrepancyStatus = "supported" | "unsupported" | "contradicted" | "not_discussed";
+
+// How the interview conversation measured up against a résumé claim.
+export interface Discrepancy {
+  claim: string;
+  finding: string;
+  status: DiscrepancyStatus;
+}
+
+export interface InterviewResult {
+  id: number;
+  candidateId: number;
+  transcript: string;
+  summary: string;
+  score: number;
+  strengths: string[] | null;
+  concerns: string[] | null;
+  discrepancies: Discrepancy[] | null;
+  createdAt: string;
+}
+
 export interface ParsedResume {
   name: string;
   skills: string[];
